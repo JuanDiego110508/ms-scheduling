@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: ms-scheduling
+
+  cloud:
+    consul:
+      host: localhost
+      port: 8500
+      discovery:
+        health-check-path: /api/v1/actuator/health
+        health-check-interval: 10s
+        instance-id: ${spring.application.name}:${random.value}
+        prefer-ip-address: false
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/world_dance_scheduling
+    username: root
+    password: admin
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+    properties:
+      hibernate:
+        format-sql: true
+
+services:
+  enrollment:
+    url: http://localhost:9091
+  events:
+    url: http://localhost:9092
+
+server:
+  port: 9097
+  servlet:
+    context-path: /api/v1
+
+security:
+  jwt:
+    secret-key: fx3VDiOxgojN6m3+9reMeoSdyPt7JOq0Zx67hKOIrHI=
+    token-expiration: 900000
+
+logging:
+  level:
+    org.springframework.web: DEBUG
+    org.hibernate.SQL: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+    endpoint:
+      health:
+        show-details: always
