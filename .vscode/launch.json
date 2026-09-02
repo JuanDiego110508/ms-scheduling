@@ -1,0 +1,14 @@
+{
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Spring Boot-MsSchedulingApplication<ms-scheduling>",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "mainClass": "com.world_dance.ms_scheduling.MsSchedulingApplication",
+            "projectName": "ms-scheduling",
+            "args": "",
+            "envFile": "${workspaceFolder}/.env"
+        }
+    ]
+}
