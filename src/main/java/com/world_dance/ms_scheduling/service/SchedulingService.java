@@ -168,6 +168,12 @@ public class SchedulingService {
                 .build();
     }
 
+    @Transactional(readOnly = true)
+    public ScheduleGenerationResponseDto getScheduleByEvent(Long eventId) {
+        return getScheduleByEvent(eventId, "ORGANIZER");
+    }
+
+    @Transactional(readOnly = true)
     public ScheduleGenerationResponseDto getScheduleByEvent(Long eventId, String userRole) {
         log.info("Obteniendo cronograma del evento: {} (Solicitado por rol: {})", eventId, userRole);
 
