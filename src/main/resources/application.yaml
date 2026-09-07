@@ -2,35 +2,45 @@ spring:
   application:
     name: ms-scheduling
 
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.mongo.MongoAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.mongo.MongoDataAutoConfiguration  
+
   cloud:
     consul:
-      host: localhost
-      port: 8500
+      host: "${SPRING_CLOUD_CONSUL_HOST:worlddance-consul}"
+      port: "${SPRING_CLOUD_CONSUL_PORT:8500}"
       discovery:
         health-check-path: /api/v1/actuator/health
         health-check-interval: 10s
-        instance-id: ${spring.application.name}:${random.value}
+        instance-id: "${spring.application.name}:${random.value}"
+        service-name: ms-scheduling
         prefer-ip-address: false
 
   datasource:
-    url: jdbc:mysql://localhost:3306/world_dance_scheduling
-    username: root
-    password: admin
+    url: "${SPRING_DATASOURCE_URL:jdbc:mysql://worlddance-mysql:3306/world_dance_scheduling}"
+    username: "${SPRING_DATASOURCE_USERNAME:root}"
+    password: "${SPRING_DATASOURCE_PASSWORD:admin}"
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
+    database-platform: org.hibernate.dialect.MySQLDialect
     hibernate:
       ddl-auto: none
     show-sql: true
     properties:
       hibernate:
-        format-sql: true
+        format_sql: true
+
+  main:
+    allow-bean-definition-overriding: true
 
 services:
   enrollment:
-    url: http://localhost:9091
+    url: "${SERVICES_ENROLLMENT_URL:http://ms-enrollment:9093}"
   events:
-    url: http://localhost:9092
+    url: "${SERVICES_EVENTS_URL:http://ms-event-category:9092}"
 
 server:
   port: 9097
@@ -39,7 +49,7 @@ server:
 
 security:
   jwt:
-    secret-key: fx3VDiOxgojN6m3+9reMeoSdyPt7JOq0Zx67hKOIrHI=
+    secret-key: "${JWT_SECRET:fx3VDiOxgojN6m3+9reMeoSdyPt7JOq0Zx67hKOIrHI=}"
     token-expiration: 900000
 
 logging:
@@ -51,7 +61,12 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
-    endpoint:
-      health:
-        show-details: always
+        include:
+          - health
+          - info
+  endpoint:
+    health:
+      show-details: always
+  health:
+    mongo:
+      enabled: false
