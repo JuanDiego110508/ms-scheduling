@@ -31,7 +31,7 @@ public class SchedulingController {
     @GetMapping("/event/{eventId}")
     public ResponseEntity<ScheduleGenerationResponseDto> getScheduleByEvent(
             @PathVariable Long eventId,
-            @RequestHeader(value = "X-User-Role", required = false) String userRole) {
+            @RequestHeader(value = "X-User-Role", required = false, defaultValue = "ORGANIZER") String userRole) {
         log.info("Consulta de cronograma para evento: {} por usuario con rol: {}", eventId, userRole);
         ScheduleGenerationResponseDto response = schedulingService.getScheduleByEvent(eventId, userRole);
         return ResponseEntity.ok(response);

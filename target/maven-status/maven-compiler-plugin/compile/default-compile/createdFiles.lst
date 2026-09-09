@@ -1,11 +1,12 @@
-com\world_dance\ms_scheduling\dto\ParticipantDTO.class
 com\world_dance\ms_scheduling\MsSchedulingApplication.class
 com\world_dance\ms_scheduling\client\EnrollmentServiceClient.class
-com\world_dance\ms_scheduling\dto\ParticipantDTO$ParticipantDTOBuilder.class
 com\world_dance\ms_scheduling\controller\SchedulingController.class
-com\world_dance\ms_scheduling\service\SchedulingService.class
 com\world_dance\ms_scheduling\dto\EventDTO$EventDTOBuilder.class
 com\world_dance\ms_scheduling\dto\EventDTO.class
 com\world_dance\ms_scheduling\dto\EnrollmentDTO$EnrollmentDTOBuilder.class
+com\world_dance\ms_scheduling\exception\GlobalExceptionHandler.class
+com\world_dance\ms_scheduling\dto\ParticipantDTO.class
+com\world_dance\ms_scheduling\dto\ParticipantDTO$ParticipantDTOBuilder.class
+com\world_dance\ms_scheduling\service\SchedulingService.class
 com\world_dance\ms_scheduling\client\EventServiceClient.class
 com\world_dance\ms_scheduling\dto\EnrollmentDTO.class
