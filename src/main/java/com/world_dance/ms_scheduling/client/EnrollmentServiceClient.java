@@ -11,4 +11,9 @@ public interface EnrollmentServiceClient {
 
     @GetMapping("/api/v1/enrollments/event/{eventId}")
     List<EnrollmentDTO> getEnrollmentsByEvent(@PathVariable("eventId") Long eventId);
-};
+
+    @GetMapping("/api/v1/enrollments/events/{eventId}/users/{userId}/role")
+    com.world_dance.wd_lib_common.dto.UserEventRoleResponseDto getUserEventRole(
+            @PathVariable("eventId") Long eventId, 
+            @PathVariable("userId") Long userId);
+}

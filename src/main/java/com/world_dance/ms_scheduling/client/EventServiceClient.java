@@ -1,6 +1,7 @@
 package com.world_dance.ms_scheduling.client;
 
-import com.world_dance.ms_scheduling.dto.EventDTO;
+import com.world_dance.wd_lib_common.dto.EventResponseDto;
+import com.world_dance.wd_lib_common.dto.HttpGlobalResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -9,5 +10,5 @@ import org.springframework.web.bind.annotation.PathVariable;
 public interface EventServiceClient {
 
     @GetMapping("/api/v1/events/{eventId}")
-    EventDTO getEvent(@PathVariable("eventId") Long eventId);
+    HttpGlobalResponse<EventResponseDto> getEvent(@PathVariable("eventId") Long eventId);
 }

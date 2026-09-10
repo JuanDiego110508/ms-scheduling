@@ -50,12 +50,11 @@ public class SchedulingService {
     );
 
     @Transactional
-    public ScheduleGenerationResponseDto generateSchedule(ScheduleGenerationRequestDto request, String userRole) {
-        validateOrganizerRole(userRole);
+    public ScheduleGenerationResponseDto generateSchedule(ScheduleGenerationRequestDto request, Long userId) {
         Long eventId = request.getEventId();
-        log.info("Generando cronograma para evento: {}", eventId);
-
         EventDTO eventDto = fetchEventInfo(eventId);
+        validateOrganizerRole(userId, eventDto);
+        log.info("Generando cronograma para evento: {}", eventId);
 
         List<Modality> modalities = modalityRepository.findByEventId(eventId);
         if (modalities.isEmpty()) {
@@ -170,22 +169,37 @@ public class SchedulingService {
 
     @Transactional(readOnly = true)
     public ScheduleGenerationResponseDto getScheduleByEvent(Long eventId) {
-        return getScheduleByEvent(eventId, "ORGANIZER");
+        return getScheduleByEvent(eventId, null);
     }
 
     @Transactional(readOnly = true)
-    public ScheduleGenerationResponseDto getScheduleByEvent(Long eventId, String userRole) {
-        log.info("Obteniendo cronograma del evento: {} (Solicitado por rol: {})", eventId, userRole);
+    public ScheduleGenerationResponseDto getScheduleByEvent(Long eventId, Long userId) {
+        log.info("Obteniendo cronograma del evento: {} (Solicitado por userId: {})", eventId, userId);
 
         Schedule schedule = scheduleRepository.findByEventId(eventId)
                 .orElseThrow(() -> new ResourceNotFoundException("No se encontró un cronograma configurado para el evento con ID: " + eventId));
 
-        boolean isOrganizer = isOrganizer(userRole);
-        if (schedule.getStatus() == ScheduleStatus.DRAFT && !isOrganizer) {
-            throw new BadRequestException("El cronograma para este evento aún se encuentra en borrador y no ha sido publicado.");
+        EventDTO eventDto = fetchEventInfo(eventId);
+        boolean isOrganizer = isOrganizer(userId, eventDto);
+        boolean canViewDraft = isOrganizer;
+        
+        if (!isOrganizer && userId != null) {
+            try {
+                com.world_dance.wd_lib_common.dto.UserEventRoleResponseDto roleResp = enrollmentServiceClient.getUserEventRole(eventId, userId);
+                if (roleResp != null && roleResp.getRoleInEvent() != null) {
+                    com.world_dance.wd_lib_common.enums.EventRole role = roleResp.getRoleInEvent();
+                    if (role == com.world_dance.wd_lib_common.enums.EventRole.STAFF || role == com.world_dance.wd_lib_common.enums.EventRole.JURY) {
+                        canViewDraft = true;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("No se pudo obtener el rol del usuario {} en el evento {}: {}", userId, eventId, e.getMessage());
+            }
         }
 
-        EventDTO eventDto = fetchEventInfo(eventId);
+        if (schedule.getStatus() == ScheduleStatus.DRAFT && !canViewDraft) {
+            throw new BadRequestException("El cronograma para este evento aún se encuentra en borrador y no ha sido publicado.");
+        }
         List<PresentationSlot> slots = presentationSlotRepository.findByScheduleIdOrdered(schedule.getId());
         List<Modality> modalities = modalityRepository.findByEventId(eventId);
         Map<Long, Modality> modalityMap = modalities.stream().collect(Collectors.toMap(Modality::getId, m -> m, (m1, m2) -> m1));
@@ -247,8 +261,9 @@ public class SchedulingService {
     }
 
     @Transactional
-    public ScheduleGenerationResponseDto updateScheduleStatus(Long eventId, ScheduleStatus status, String userRole) {
-        validateOrganizerRole(userRole);
+    public ScheduleGenerationResponseDto updateScheduleStatus(Long eventId, ScheduleStatus status, Long userId) {
+        EventDTO eventDto = fetchEventInfo(eventId);
+        validateOrganizerRole(userId, eventDto);
         log.info("Actualizando estado del cronograma del evento {} a {}", eventId, status);
 
         Schedule schedule = scheduleRepository.findByEventId(eventId)
@@ -257,12 +272,13 @@ public class SchedulingService {
         schedule.setStatus(status);
         scheduleRepository.save(schedule);
 
-        return getScheduleByEvent(eventId, userRole);
+        return getScheduleByEvent(eventId, userId);
     }
 
     @Transactional
-    public void deleteSchedule(Long eventId, String userRole) {
-        validateOrganizerRole(userRole);
+    public void deleteSchedule(Long eventId, Long userId) {
+        EventDTO eventDto = fetchEventInfo(eventId);
+        validateOrganizerRole(userId, eventDto);
         log.info("Eliminando cronograma del evento: {}", eventId);
 
         if (!scheduleRepository.existsByEventId(eventId)) {
@@ -274,8 +290,21 @@ public class SchedulingService {
 
     private EventDTO fetchEventInfo(Long eventId) {
         try {
-            EventDTO eventDto = eventServiceClient.getEvent(eventId);
-            if (eventDto != null) return eventDto;
+            com.world_dance.wd_lib_common.dto.HttpGlobalResponse<com.world_dance.wd_lib_common.dto.EventResponseDto> response = eventServiceClient.getEvent(eventId);
+            if (response != null && response.getData() != null) {
+                com.world_dance.wd_lib_common.dto.EventResponseDto dto = response.getData();
+                return EventDTO.builder()
+                        .id(dto.getIdEvent())
+                        .ownerId(dto.getOwnerId())
+                        .name(dto.getName())
+                        .description(dto.getDescription())
+                        // Note: EventResponseDto dates are Strings. Parse them or fallback if needed.
+                        .startDate(dto.getStartDate() != null ? LocalDateTime.parse(dto.getStartDate()) : null)
+                        .endDate(dto.getEndDate() != null ? LocalDateTime.parse(dto.getEndDate()) : null)
+                        .location(dto.getLocation())
+                        .status(dto.getStatus() != null ? dto.getStatus().name() : null)
+                        .build();
+            }
         } catch (Exception e) {
             log.warn("Fallo al obtener evento vía Feign: {}. Intentando vía EventRepository.", e.getMessage());
         }
@@ -291,19 +320,20 @@ public class SchedulingService {
                     .endDate(event.getEndDate())
                     .location(event.getLocation())
                     .status(event.getStatus() != null ? event.getStatus().name() : null)
+                    .ownerId(event.getOwnerId())
                     .build();
         }
 
         throw new ResourceNotFoundException("No se encontró el evento con ID: " + eventId);
     }
 
-    private void validateOrganizerRole(String userRole) {
-        if (!isOrganizer(userRole)) {
-            throw new BadRequestException("Acceso denegado: Esta acción requiere permisos de ORGANIZADOR o ADMIN.");
+    private void validateOrganizerRole(Long userId, EventDTO eventDto) {
+        if (!isOrganizer(userId, eventDto)) {
+            throw new BadRequestException("Acceso denegado: Esta acción requiere ser el organizador del evento.");
         }
     }
 
-    private boolean isOrganizer(String userRole) {
-        return userRole != null && ("ORGANIZER".equalsIgnoreCase(userRole) || "ADMIN".equalsIgnoreCase(userRole));
+    private boolean isOrganizer(Long userId, EventDTO eventDto) {
+        return userId != null && eventDto != null && userId.equals(eventDto.getOwnerId());
     }
 }
