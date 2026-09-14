@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class EnrollmentDTO {
+    @com.fasterxml.jackson.annotation.JsonProperty("enrollmentId")
     private Long id;
     private Long userId;
     private Long eventId;
