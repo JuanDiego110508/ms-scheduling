@@ -61,7 +61,13 @@ public class SchedulingService {
             throw new BadRequestException("El evento no tiene modalidades configuradas.");
         }
 
-        List<EnrollmentDTO> enrollments = enrollmentServiceClient.getEnrollmentsByEvent(eventId);
+        List<EnrollmentDTO> enrollments = null;
+        try {
+            enrollments = enrollmentServiceClient.getEnrollmentsByEvent(eventId);
+        } catch (Exception e) {
+            log.warn("Error al obtener inscripciones para el evento {}: {}", eventId, e.getMessage());
+        }
+
         if (enrollments == null || enrollments.isEmpty()) {
             throw new BadRequestException("El evento no tiene inscripciones registradas para generar el cronograma.");
         }
@@ -133,7 +139,10 @@ public class SchedulingService {
             }
         }
 
-        scheduleRepository.deleteByEventId(eventId);
+        scheduleRepository.findByEventId(eventId).ifPresent(existingSchedule -> {
+            presentationSlotRepository.deleteByScheduleId(existingSchedule.getId());
+            scheduleRepository.delete(existingSchedule);
+        });
 
         Schedule schedule = Schedule.builder()
                 .eventId(eventId)
@@ -285,7 +294,10 @@ public class SchedulingService {
             throw new ResourceNotFoundException("No se encontró cronograma para eliminar en el evento con ID: " + eventId);
         }
 
-        scheduleRepository.deleteByEventId(eventId);
+        scheduleRepository.findByEventId(eventId).ifPresent(schedule -> {
+            presentationSlotRepository.deleteByScheduleId(schedule.getId());
+            scheduleRepository.delete(schedule);
+        });
     }
 
     private EventDTO fetchEventInfo(Long eventId) {
