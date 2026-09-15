@@ -8,17 +8,18 @@ import com.world_dance.ms_scheduling.dto.ParticipantDTO;
 import com.world_dance.wd_lib_common.dto.ScheduleGenerationRequestDto;
 import com.world_dance.wd_lib_common.dto.ScheduleGenerationResponseDto;
 import com.world_dance.wd_lib_common.dto.ScheduleSlotDto;
+import com.world_dance.wd_lib_common.dto.ModalityResponseDto;
+import com.world_dance.wd_lib_common.dto.UserEventRoleResponseDto;
 import com.world_dance.wd_lib_common.entity.Event;
-import com.world_dance.wd_lib_common.entity.Modality;
 import com.world_dance.wd_lib_common.entity.PresentationSlot;
 import com.world_dance.wd_lib_common.entity.Schedule;
 import com.world_dance.wd_lib_common.enums.Division;
+import com.world_dance.wd_lib_common.enums.EventRole;
 import com.world_dance.wd_lib_common.enums.ScheduleStatus;
 import com.world_dance.wd_lib_common.enums.SlotStatus;
 import com.world_dance.wd_lib_common.exception.BadRequestException;
 import com.world_dance.wd_lib_common.exception.ResourceNotFoundException;
 import com.world_dance.wd_lib_common.repository.EventRepository;
-import com.world_dance.wd_lib_common.repository.ModalityRepository;
 import com.world_dance.wd_lib_common.repository.PresentationSlotRepository;
 import com.world_dance.wd_lib_common.repository.ScheduleRepository;
 import lombok.RequiredArgsConstructor;
@@ -38,7 +39,6 @@ public class SchedulingService {
 
     private final EventServiceClient eventServiceClient;
     private final EventRepository eventRepository;
-    private final ModalityRepository modalityRepository;
     private final ScheduleRepository scheduleRepository;
     private final PresentationSlotRepository presentationSlotRepository;
     private final EnrollmentServiceClient enrollmentServiceClient;
@@ -56,10 +56,11 @@ public class SchedulingService {
         validateOrganizerRole(userId, eventDto);
         log.info("Generando cronograma para evento: {}", eventId);
 
-        List<Modality> modalities = modalityRepository.findByEventId(eventId);
+        List<ModalityResponseDto> modalities = fetchModalities(eventId);
         if (modalities.isEmpty()) {
             throw new BadRequestException("El evento no tiene modalidades configuradas.");
         }
+        validateModalityOrder(request.getModalityOrder(), modalities);
 
         List<EnrollmentDTO> enrollments = null;
         try {
@@ -79,10 +80,11 @@ public class SchedulingService {
                 ? request.getStageNames()
                 : List.of("Escenario Principal");
 
-        List<Modality> sortedModalities = modalities.stream()
-                .sorted(Comparator.comparingInt((Modality m) -> DIVISION_ORDER.indexOf(m.getDivision()))
-                        .thenComparing(Modality::getCategory))
+        List<ModalityResponseDto> sortedModalities = modalities.stream()
+                .sorted(buildModalityComparator(request.getModalityOrder()))
                 .collect(Collectors.toList());
+
+        Comparator<EnrollmentDTO> enrollmentComparator = buildEnrollmentComparator(request.getSortingStrategy());
 
         Map<Long, List<EnrollmentDTO>> enrollmentsByModality = enrollments.stream()
                 .filter(e -> e.getModalityId() != null)
@@ -93,25 +95,17 @@ public class SchedulingService {
         int orderCounter = 1;
         int stageIndex = 0;
 
-        for (Modality modality : sortedModalities) {
+        for (ModalityResponseDto modality : sortedModalities) {
             List<EnrollmentDTO> modalityEnrollments = enrollmentsByModality.getOrDefault(modality.getId(), new ArrayList<>());
 
             if (modalityEnrollments.isEmpty()) {
                 continue;
             }
 
-            modalityEnrollments.sort((e1, e2) -> {
-                if (e1.getCreatedAt() == null && e2.getCreatedAt() == null) return 0;
-                if (e1.getCreatedAt() == null) return 1;
-                if (e2.getCreatedAt() == null) return -1;
-                return e2.getCreatedAt().compareTo(e1.getCreatedAt());
-            });
+            modalityEnrollments.sort(enrollmentComparator);
 
             for (EnrollmentDTO enrollment : modalityEnrollments) {
-                ParticipantDTO participant = enrollment.getParticipant();
-                String participantName = participant != null && participant.getName() != null
-                        ? participant.getName() + (participant.getLastName() != null ? " " + participant.getLastName() : "")
-                        : "Participante " + enrollment.getId();
+                String participantName = participantDisplayName(enrollment);
 
                 ScheduleSlotDto slot = ScheduleSlotDto.builder()
                         .enrollmentId(enrollment.getId())
@@ -158,6 +152,9 @@ public class SchedulingService {
                     .enrollmentId(slot.getEnrollmentId())
                     .presentationOrder(slot.getOrder())
                     .estimatedTime(slot.getStartTime().toLocalTime())
+                    .stage(slot.getStage())
+                    .durationMinutes(durationMinutes)
+                    .notes(slot.getNotes())
                     .status(SlotStatus.PENDING)
                     .build();
             presentationSlots.add(presentationSlot);
@@ -210,8 +207,8 @@ public class SchedulingService {
             throw new BadRequestException("El cronograma para este evento aún se encuentra en borrador y no ha sido publicado.");
         }
         List<PresentationSlot> slots = presentationSlotRepository.findByScheduleIdOrdered(schedule.getId());
-        List<Modality> modalities = modalityRepository.findByEventId(eventId);
-        Map<Long, Modality> modalityMap = modalities.stream().collect(Collectors.toMap(Modality::getId, m -> m, (m1, m2) -> m1));
+        List<ModalityResponseDto> modalities = fetchModalities(eventId);
+        Map<Long, ModalityResponseDto> modalityMap = modalities.stream().collect(Collectors.toMap(ModalityResponseDto::getId, m -> m, (m1, m2) -> m1));
 
         List<EnrollmentDTO> enrollments = new ArrayList<>();
         try {
@@ -228,7 +225,7 @@ public class SchedulingService {
         List<ScheduleSlotDto> slotDtos = new ArrayList<>();
         for (PresentationSlot slot : slots) {
             EnrollmentDTO enrollment = enrollmentMap.get(slot.getEnrollmentId());
-            Modality modality = enrollment != null && enrollment.getModalityId() != null
+            ModalityResponseDto modality = enrollment != null && enrollment.getModalityId() != null
                     ? modalityMap.get(enrollment.getModalityId())
                     : null;
 
@@ -240,6 +237,7 @@ public class SchedulingService {
 
             LocalTime estimatedTime = slot.getEstimatedTime() != null ? slot.getEstimatedTime() : baseDate.toLocalTime();
             LocalDateTime slotStart = baseDate.with(estimatedTime);
+            int slotDuration = slot.getDurationMinutes() != null ? slot.getDurationMinutes() : 5;
 
             ScheduleSlotDto slotDto = ScheduleSlotDto.builder()
                     .id(slot.getId())
@@ -249,10 +247,11 @@ public class SchedulingService {
                     .category(modality != null ? modality.getCategory() : null)
                     .style(modality != null ? modality.getStyle() : null)
                     .startTime(slotStart)
-                    .endTime(slotStart.plusMinutes(5))
-                    .stage("Escenario Principal")
+                    .endTime(slotStart.plusMinutes(slotDuration))
+                    .stage(slot.getStage() != null ? slot.getStage() : "Escenario Principal")
                     .order(slot.getPresentationOrder())
                     .status(schedule.getStatus())
+                    .notes(slot.getNotes())
                     .build();
 
             slotDtos.add(slotDto);
@@ -339,13 +338,97 @@ public class SchedulingService {
         throw new ResourceNotFoundException("No se encontró el evento con ID: " + eventId);
     }
 
+    private List<ModalityResponseDto> fetchModalities(Long eventId) {
+        try {
+            com.world_dance.wd_lib_common.dto.HttpGlobalResponse<List<ModalityResponseDto>> response =
+                    eventServiceClient.getModalitiesByEvent(eventId);
+            if (response != null && response.getData() != null) {
+                return response.getData();
+            }
+        } catch (Exception e) {
+            log.warn("Fallo al obtener modalidades vía Feign para el evento {}: {}", eventId, e.getMessage());
+        }
+        return Collections.emptyList();
+    }
+
     private void validateOrganizerRole(Long userId, EventDTO eventDto) {
-        if (!isOrganizer(userId, eventDto)) {
-            throw new BadRequestException("Acceso denegado: Esta acción requiere ser el organizador del evento.");
+        if (!isOrganizer(userId, eventDto) && !hasAdminRole(userId, eventDto)) {
+            throw new BadRequestException("Acceso denegado: Esta acción requiere ser el organizador del evento o tener rol ADMIN en el mismo.");
         }
     }
 
     private boolean isOrganizer(Long userId, EventDTO eventDto) {
         return userId != null && eventDto != null && userId.equals(eventDto.getOwnerId());
+    }
+
+    private boolean hasAdminRole(Long userId, EventDTO eventDto) {
+        if (userId == null || eventDto == null) {
+            return false;
+        }
+        try {
+            UserEventRoleResponseDto roleResp = enrollmentServiceClient.getUserEventRole(eventDto.getId(), userId);
+            return roleResp != null && roleResp.getRoleInEvent() == EventRole.ADMIN;
+        } catch (Exception e) {
+            log.warn("No se pudo verificar rol ADMIN para userId {} en evento {}: {}", userId, eventDto.getId(), e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Orden de las modalidades. Si la request especifica modalityOrder, las modalidades
+     * se ordenan según la posición de su id en esa lista (las no listadas van al final,
+     * en el orden en que llegaron). Si no, se usa el orden por defecto: división
+     * (SOLO/DUET/GROUP) y luego categoría.
+     */
+    private void validateModalityOrder(List<Long> modalityOrder, List<ModalityResponseDto> modalities) {
+        if (modalityOrder == null || modalityOrder.isEmpty()) {
+            return;
+        }
+        Set<Long> validIds = modalities.stream().map(ModalityResponseDto::getId).collect(Collectors.toSet());
+        List<Long> invalidIds = modalityOrder.stream()
+                .filter(id -> !validIds.contains(id))
+                .distinct()
+                .toList();
+        if (!invalidIds.isEmpty()) {
+            throw new BadRequestException("modalityOrder contiene ids de modalidad que no pertenecen al evento: " + invalidIds);
+        }
+    }
+
+    private Comparator<ModalityResponseDto> buildModalityComparator(List<Long> modalityOrder) {
+        if (modalityOrder != null && !modalityOrder.isEmpty()) {
+            return Comparator.comparingInt((ModalityResponseDto m) -> {
+                int idx = modalityOrder.indexOf(m.getId());
+                return idx == -1 ? Integer.MAX_VALUE : idx;
+            });
+        }
+        return Comparator.comparingInt((ModalityResponseDto m) -> DIVISION_ORDER.indexOf(m.getDivision()))
+                .thenComparing(ModalityResponseDto::getCategory);
+    }
+
+    /**
+     * Orden de las inscripciones dentro de cada modalidad, según sortingStrategy:
+     * NEWEST_FIRST (por defecto), OLDEST_FIRST o ALPHABETICAL (por nombre del participante).
+     */
+    private Comparator<EnrollmentDTO> buildEnrollmentComparator(String sortingStrategy) {
+        String strategy = sortingStrategy != null ? sortingStrategy.trim().toUpperCase() : "NEWEST_FIRST";
+
+        Comparator<EnrollmentDTO> byCreatedAtAsc = Comparator.comparing(
+                EnrollmentDTO::getCreatedAt,
+                Comparator.nullsLast(Comparator.naturalOrder()));
+
+        return switch (strategy) {
+            case "OLDEST_FIRST" -> byCreatedAtAsc;
+            case "ALPHABETICAL" -> Comparator.comparing(
+                    this::participantDisplayName,
+                    String.CASE_INSENSITIVE_ORDER);
+            default -> byCreatedAtAsc.reversed();
+        };
+    }
+
+    private String participantDisplayName(EnrollmentDTO enrollment) {
+        ParticipantDTO participant = enrollment.getParticipant();
+        return participant != null && participant.getName() != null
+                ? participant.getName() + (participant.getLastName() != null ? " " + participant.getLastName() : "")
+                : "Participante " + enrollment.getId();
     }
 }
