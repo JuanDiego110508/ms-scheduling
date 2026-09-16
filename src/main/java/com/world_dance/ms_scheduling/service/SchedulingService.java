@@ -123,7 +123,7 @@ public class SchedulingService {
                         .endTime(currentTime.plusMinutes(durationMinutes))
                         .stage(stageNames.get(stageIndex % stageNames.size()))
                         .order(orderCounter)
-                        .status(ScheduleStatus.DRAFT)
+                        .status(ScheduleStatus.ACTIVE)
                         .notes(request.getNotes())
                         .build();
 
@@ -146,7 +146,7 @@ public class SchedulingService {
 
         Schedule schedule = Schedule.builder()
                 .eventId(eventId)
-                .status(ScheduleStatus.DRAFT)
+                .status(ScheduleStatus.ACTIVE)
                 .build();
 
         Schedule savedSchedule = scheduleRepository.save(schedule);
