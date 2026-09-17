@@ -14,6 +14,7 @@ import com.world_dance.wd_lib_common.entity.Event;
 import com.world_dance.wd_lib_common.entity.PresentationSlot;
 import com.world_dance.wd_lib_common.entity.Schedule;
 import com.world_dance.wd_lib_common.enums.Division;
+import com.world_dance.wd_lib_common.enums.EnrollmentStatus;
 import com.world_dance.wd_lib_common.enums.EventRole;
 import com.world_dance.wd_lib_common.enums.ScheduleStatus;
 import com.world_dance.wd_lib_common.enums.SlotStatus;
@@ -71,6 +72,17 @@ public class SchedulingService {
 
         if (enrollments == null || enrollments.isEmpty()) {
             throw new BadRequestException("El evento no tiene inscripciones registradas para generar el cronograma.");
+        }
+
+        int totalEnrollments = enrollments.size();
+        enrollments = enrollments.stream()
+                .filter(e -> EnrollmentStatus.APPROVED.name().equalsIgnoreCase(e.getStatus()))
+                .collect(Collectors.toList());
+
+        if (enrollments.isEmpty()) {
+            throw new BadRequestException(
+                    "El evento tiene " + totalEnrollments + " inscripción(es), pero ninguna está aprobada. "
+                            + "Aprueba las inscripciones antes de generar el cronograma.");
         }
 
         int durationMinutes = request.getDefaultDurationMinutes() != null ? request.getDefaultDurationMinutes() : 5;
